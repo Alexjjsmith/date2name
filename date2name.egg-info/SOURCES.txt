@@ -1,0 +1,8 @@
+pyproject.toml
+setup.py
+date2name/__init__.py
+date2name.egg-info/PKG-INFO
+date2name.egg-info/SOURCES.txt
+date2name.egg-info/dependency_links.txt
+date2name.egg-info/entry_points.txt
+date2name.egg-info/top_level.txt
