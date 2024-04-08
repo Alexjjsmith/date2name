@@ -21,6 +21,10 @@ import  logging
 import  sys
 from optparse import OptionParser
 import platform
+import exifread
+from datetime import datetime
+import ffmpeg
+
 
 # global variables
 PROG_VERSION_DATE = PROG_VERSION[13:23]
@@ -71,6 +75,9 @@ parser.add_option("-d", "--directories", dest="onlydirectories",
 parser.add_option("-f", "--files", dest="onlyfiles",
                   action="store_true",
                   help="modify only file names")
+parser.add_option("-a", "--allfiles", dest="allfiles",
+                  action="store_true",
+                  help="modify all files in the current directory")
 parser.add_option("-C", "--compact", dest="compact",
                   action="store_true",
                   help="use compact datestamp             (YYYYMMDD)")
@@ -170,6 +177,7 @@ def get_converted_basename(matched_pattern, item):
         return item_year + "-" + item_month + name_without_datestamp
     elif options.withtime:
         # FIXXME: probably implement some kind of conversion to withtime-format
+
         logging.warn("%s: Sorry! Conversion to withtime-format not implemented yet, taking standard format" % item)
         return item_year + "-" + item_month + "-" + item_day + name_without_datestamp
     else:
@@ -193,7 +201,27 @@ def get_timestamp_from_file(formatstring, item):
     elif options.ctime and platform.system() != 'Darwin':
         return time.strftime(formatstring, time.localtime(os.path.getctime(item))) + delimiter_char + item
     elif options.mtime:
-        return time.strftime(formatstring, time.localtime(os.path.getmtime(item))) + delimiter_char + item
+        f = open(item, 'rb')
+        tags = exifread.process_file(f, details=False)
+        logging.debug(f"tags: {tags}")
+        datetimetaken = tags.get('EXIF DateTimeOriginal')
+
+        fullpath = os.getcwd() + '\\'+ item
+        logging.debug(f"fullpath: {fullpath}")
+        videometadata = ffmpeg.probe(fullpath)
+        logging.debug(f"videometadata: {videometadata}")
+        creation_time = videometadata.get('streams', [{}])[0].get('tags', {}).get('creation_time')
+        logging.debug(f"creation_time: {creation_time}")
+
+        # if exif datetimeoriginal is available, we'll use it
+        if datetimetaken:
+            datetimetaken = datetime.strptime(str(datetimetaken), '%Y:%m:%d %H:%M:%S%z').timetuple()
+            return time.strftime(formatstring, datetimetaken) + delimiter_char + item
+        elif creation_time:
+            creation_time = datetime.strptime(str(creation_time), '%Y-%m-%dT%H:%M:%S.%f%z').timetuple()
+            return time.strftime(formatstring, creation_time) + delimiter_char + item
+        else:
+            return time.strftime(formatstring, time.localtime(os.path.getmtime(item))) + delimiter_char + item
     else:
         logging.error("internal error: not ctime nor mtime chosen! You can correct this by giving a parameter")
 
@@ -363,7 +391,12 @@ def main():
     # log handling
     handle_logging()
 
-    filelist = args[0:]
+    if options.allfiles:
+        logging.debug("handling all files in current directory")
+        filelist = [os.path.join(args[0], f) for f in os.listdir(args[0])]
+        options.onlyfiles = True
+    else:
+        filelist = args[0:]
     logging.debug("filelist: [%s]" % filelist)
 
     if options.compact:
@@ -392,7 +425,7 @@ def main():
             if path:
                 os.chdir(path)
             logging.debug("changed cwd to: " + os.getcwd())
-            handle_item(os.path.dirname(item), os.path.basename(item), formatstring)
+            handle_item(path, basename, formatstring)
             os.chdir(original_path)
 
         else:
